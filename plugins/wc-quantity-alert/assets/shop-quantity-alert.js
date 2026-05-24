@@ -4,6 +4,7 @@
     var noticeClass = 'wc-quantity-alert-shop-notice';
     var buttonSelector = '.wc-block-components-product-button__button';
 
+    // Shop buttons expose quantity changes through text updates like "2 in cart", so this script listens there.
     function parseQuantity(text) {
         var match = String(text || '').match(/(\d+)\s+in cart/i);
         return match ? Number(match[1]) : null;
@@ -34,6 +35,7 @@
         var notice = document.createElement('div');
         notice.className = noticeClass + ' woocommerce-message';
         notice.setAttribute('role', 'alert');
+        // Reuse one inline notice near the top of the page instead of stacking a new element per change.
         main.insertBefore(notice, main.firstChild.nextSibling || main.firstChild);
         return notice;
     }
@@ -60,6 +62,7 @@
 
         button.dataset.wcQuantityAlertReady = 'true';
 
+        // MutationObserver is the shop-page integration point because this surface is not driven by the cart store subscriber.
         var observer = new MutationObserver(function() {
             var nextQuantity = parseQuantity(button.textContent);
 

@@ -1,15 +1,195 @@
 # WC Quantity Alert
 
-A WooCommerce plugin that displays a dismissible success notice whenever a shopper changes an item's quantity in the Block Cart, and a matching inline alert when the in-cart quantity changes from the Shop page. The notice includes the product name and, when available, the SKU.
+A WooCommerce plugin that shows a dismissible success notice when a shopper changes an item's quantity in the Block Cart, and a matching inline alert when the in-cart quantity changes from the Shop page. The notice includes the product name and, when available, the SKU.
 
 ## How It Works
 
-1. **Server-side tracking** — `WC_Quantity_Tracker` hooks into `woocommerce_after_cart_item_quantity_update` to record each quantity change (product name, SKU, new quantity) in the WooCommerce session.
-2. **Store API extension** — The plugin extends the Cart Store API endpoint to expose those session-stored changes under the `wc-quantity-alert` namespace.
+1. **Cart tracking** — `WC_Quantity_Tracker` hooks into `woocommerce_after_cart_item_quantity_update` to record each cart quantity change (product name, SKU, new quantity) in the WooCommerce session.
+2. **Cart Store API extension** — The plugin extends the Cart Store API endpoint to expose those session-stored changes under the `wc-quantity-alert` namespace.
 3. **Cart notice** — A vanilla JS subscriber (`quantity-alert.js`) watches the `wc/store/cart` data store via `wp.data`. When new changes appear in `cartData.extensions['wc-quantity-alert']`, it dispatches a `core/notices` success notice into the `wc/cart` context.
-4. **Shop notice** — A lightweight observer (`shop-quantity-alert.js`) watches the Shop page product buttons for `N in cart` changes and shows the same quantity-change message inline on the page.
+4. **Shop notice** — A lightweight observer (`shop-quantity-alert.js`) watches the Shop page product buttons for `N in cart` changes and shows a matching quantity-change message inline on the page. This path does not use the Store API extension.
 
-Notices are deduplicated, only the latest change is surfaced, and cart-side session data is cleared after being read.
+Only the latest change is surfaced. Cart-side session data is cleared after it is read back through the Store API extension.
+
+## WooCommerce Hooks Used
+
+The plugin keeps its PHP integration surface intentionally small and uses the narrowest WooCommerce hooks that match the behavior under test.
+
+| Hook | Why this hook was chosen | Why nearby alternatives were not used |
+|------|--------------------------|---------------------------------------|
+| <code>woocommerce_after_cart_item_<br>quantity_update</code> | It runs after WooCommerce has accepted the new cart quantity and gives the plugin the cart item key plus both the old and new quantities. That makes it easy to ignore no-op updates, read the final product object, and persist the exact quantity that the shopper ended up with. | Broader cart lifecycle hooks such as `woocommerce_cart_updated` fire after many cart changes, not just quantity edits, so they would require extra diffing to figure out what changed. Earlier or lower-level hooks are also a worse fit because this plugin needs the final committed quantity, not an in-progress mutation. |
+| <code>woocommerce_blocks_<br>loaded</code> | The Store API extension is only registered once WooCommerce Blocks has loaded its Store API classes and helper functions. This is the safest point to call `woocommerce_store_api_register_endpoint_data()` and reference the cart schema constant. | More generic bootstrap hooks such as `plugins_loaded` or `init` can run before Blocks has finished loading, so the Store API registration function or schema classes may not exist yet. Using those hooks would mean extra defensive branching around a dependency that WooCommerce already exposes with a dedicated readiness hook. |
+
+### Why there is no separate WooCommerce hook for the Shop alert
+
+The Shop-page alert does not come from a dedicated WooCommerce PHP hook. In this implementation, the Shop experience is driven from the browser with `shop-quantity-alert.js`, which observes the product button text changing to `N in cart`.
+
+That tradeoff was deliberate:
+
+- the cart page already exposes a stronger integration point through the Blocks cart data store and Store API extensions
+- the shop page in this project does not expose an equivalent state-driven hook for the exact inline alert behavior being demonstrated
+- adding more server-side hooks would not remove the need to detect the client-side shop UI change that the user actually sees
+
+For that reason, the plugin uses WooCommerce hooks only where WooCommerce exposes a reliable state boundary, and falls back to a tightly scoped frontend observer on the Shop page.
+
+---
+
+## Architecture
+
+This project is intentionally split into small layers so the WooCommerce integration points stay simple and the UI behavior remains explainable.
+
+### 1. Architecture Layers
+
+```mermaid
+flowchart TB
+  Shopper[Shopper Interaction]
+
+  subgraph UI[Frontend Layer]
+    ShopUI[shop-quantity-alert.js
+    Shop button observer]
+    CartUI[quantity-alert.js
+    Cart wp.data subscriber]
+  end
+
+  subgraph Platform[WooCommerce / WordPress Layer]
+    Blocks[Woo Blocks Cart + Shop UI]
+    Hooks[WooCommerce Hooks]
+    StoreAPI[Store API Extensions]
+  end
+
+  subgraph State[State Layer]
+    Session[WC Session
+    wc_qty_changes]
+    CartState[Cart Contents]
+  end
+
+  Shopper --> Blocks
+  Blocks --> Hooks
+  Hooks --> Session
+  Session --> StoreAPI
+  StoreAPI --> CartUI
+  Blocks --> ShopUI
+  Blocks --> CartState
+```
+
+```text
++-----------------------+
+|  Shopper Interaction  |
++-----------+-----------+
+      |
+      v
++-----------------------+
+| Woo Blocks UI Surface |
+| Shop page / Cart page |
++-----+-----------+-----+
+    |           |
+    |           +---------------------------+
+    |                                       |
+    v                                       v
++----------------------+        +---------------------------+
+| Shop observer JS     |        | Cart subscriber JS        |
+| shop-quantity-alert  |        | quantity-alert.js         |
++----------------------+        +-------------+-------------+
+                  |
+                  v
+             +---------------------------+
+             | Store API extension       |
+             | wc-quantity-alert         |
+             +-------------+-------------+
+                   |
+                   v
+             +---------------------------+
+             | Woo session state         |
+             | wc_qty_changes            |
+             +-------------+-------------+
+                   |
+                   v
+             +---------------------------+
+             | WooCommerce hook layer    |
+             | quantity update events    |
+             +---------------------------+
+```
+
+### 2. Data Flow Sequence
+
+```mermaid
+sequenceDiagram
+  participant Shopper
+  participant UI as Woo UI
+  participant Hook as WC_Quantity_Tracker
+  participant Session as WC Session
+  participant API as Store API
+  participant CartJS as quantity-alert.js
+
+  Shopper->>UI: Change product quantity
+  UI->>Hook: WooCommerce quantity update hook fires
+  Hook->>Session: Save latest {name, sku, quantity}
+  UI->>API: Request refreshed cart state
+  API->>Session: Read wc_qty_changes
+  Session-->>API: Return latest change
+  API-->>CartJS: extensions['wc-quantity-alert']
+  CartJS->>CartJS: Ignore initial hydration / dedupe
+  CartJS-->>Shopper: Render success notice
+  Note over CartJS,Session: Clearing happens in the PHP Store API callback
+```
+
+```text
+1. Shopper changes quantity.
+2. WooCommerce fires the quantity update hook.
+3. WC_Quantity_Tracker stores the latest change in WC session.
+4. Cart UI refreshes through the Store API.
+5. Store API extension returns wc_qty_changes under:
+   extensions['wc-quantity-alert']
+6. quantity-alert.js compares the new payload to the last processed payload.
+7. If it is a real new change, it renders one success notice.
+8. The PHP Store API callback clears the session payload after returning it.
+```
+
+### 3. DOM Resilience Strategy
+
+The solution deliberately uses two different resilience strategies because the Shop page and Cart page expose different integration surfaces.
+
+```mermaid
+flowchart LR
+  subgraph Cart[Cart Page]
+    CartSource[Store API extension payload]
+    CartState[wp.data select('wc/store/cart')]
+    CartNotice[Notice rendering]
+    CartSource --> CartState --> CartNotice
+  end
+
+  subgraph Shop[Shop Page]
+    ShopButton[Woo product button text\n"N in cart"]
+    Observer[MutationObserver]
+    ShopNotice[Inline notice rendering]
+    ShopButton --> Observer --> ShopNotice
+  end
+
+  Stable[Preferred: state-driven integration] --> Cart
+  Fallback[Fallback: DOM observation when no store is exposed] --> Shop
+```
+
+```text
+Cart page resilience:
+  Store API payload
+    -> wp.data cart store
+      -> semantic notice rendering
+
+  Why this is resilient:
+  - driven by Woo state, not visual text
+  - survives layout and markup movement better
+  - easy to dedupe and reason about
+
+Shop page resilience:
+  product button text: "N in cart"
+    -> MutationObserver
+      -> inline notice
+
+  Why this exists:
+  - the Shop page in this implementation does not expose the same wp.data cart store integration used on the cart page
+  - the observer is isolated to the product-button surface
+  - failure radius is limited to shop-page alerts only
+```
 
 ---
 
@@ -17,10 +197,11 @@ Notices are deduplicated, only the latest change is surfaced, and cart-side sess
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Node.js | 18+ | Required by `@wordpress/env` |
-| npm | 9+ | |
-| Docker Desktop | latest | `@wordpress/env` uses Docker to run WordPress |
-| WP-CLI | latest | Used by the setup scripts inside the Docker container |
+| Node.js | 18+ | Required by `@wordpress/env` and local Playwright runs |
+| npm | bundled with your Node.js install | Used to install project dependencies and run scripts |
+| Docker Desktop | current | `@wordpress/env` uses Docker to run WordPress locally |
+
+`WP-CLI` is not required on the host machine for this project. The setup commands run it inside the `wp-env` CLI container.
 
 ---
 
@@ -54,6 +235,18 @@ npx wp-env run cli bash wp-content/scripts/seed-products.sh
 
 ---
 
+## Screenshots
+
+### Shop Alert
+
+![Shop quantity alert](docs/screenshots/shop-alert.png)
+
+### Cart Alert
+
+![Cart quantity alert](docs/screenshots/cart-alert.png)
+
+---
+
 ## Demo Walkthrough
 
 1. Open the **Shop** page at http://localhost:8888/shop/.
@@ -74,6 +267,8 @@ npx wp-env run cli bash wp-content/scripts/seed-products.sh
 
 Tests use [Playwright](https://playwright.dev/) and run against the local environment at `http://localhost:8888`. Make sure `wp-env start` is running and the store has been seeded before running them.
 
+The current automated suite covers the cart alert flow. The shop-page alert flow is currently validated manually.
+
 ### Install Playwright browsers
 
 ```bash
@@ -86,10 +281,22 @@ npx playwright install chromium
 npx playwright test --config=tests/e2e/playwright.config.ts
 ```
 
+Equivalent npm script:
+
+```bash
+npm test
+```
+
 ### Run a specific test file
 
 ```bash
 npx playwright test tests/e2e/cart-quantity-alert.spec.ts --config=tests/e2e/playwright.config.ts
+```
+
+Equivalent npm script:
+
+```bash
+npm run test:e2e
 ```
 
 ### Run tests with a visible browser (headed mode)
@@ -107,6 +314,7 @@ npx playwright test --config=tests/e2e/playwright.config.ts --headed
 | `alert on quantity change - Product with SKU` | Notice includes product name and SKU |
 | `alert on quantity change - Product without SKU` | Notice includes only the product name |
 | `no alert when quantity unchanged` | Setting the same quantity does not trigger a notice |
+| `latest change replaces prior cart alert` | Only the most recent cart quantity change remains visible |
 
 ---
 

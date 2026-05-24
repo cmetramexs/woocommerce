@@ -1,6 +1,7 @@
 (function() {
     'use strict';
 
+    // Subscribe to the WooCommerce cart data store and surface only the latest server-reported change.
     var subscribe = wp.data.subscribe;
     var select = wp.data.select;
     var dispatch = wp.data.dispatch;
@@ -31,6 +32,7 @@
 
         var currentJson = JSON.stringify(changes);
 
+        // Prime the subscriber with the initial state so the first real update still triggers a notice.
         if (!hasSeenInitialState) {
             hasSeenInitialState = true;
             lastProcessedJson = currentJson;
@@ -44,6 +46,8 @@
         if (currentJson === lastProcessedJson) {
             return;
         }
+
+        // The Store API only returns the latest change, so replacing the prior notice keeps the cart UI in sync.
         lastProcessedJson = currentJson;
 
         var messages = changes.map(function(item) {

@@ -4,7 +4,13 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
+/**
+ * Tracks WooCommerce quantity changes and exposes them to cart and shop UIs.
+ */
 class WC_Quantity_Tracker {
+    /**
+     * Register the hooks that drive cart tracking, Store API exposure, and frontend scripts.
+     */
     public function __construct() {
         add_action(
             'woocommerce_after_cart_item_quantity_update',
@@ -25,6 +31,11 @@ class WC_Quantity_Tracker {
         );
     }
 
+    /**
+     * Enqueue the cart subscriber and shop observer only on the pages that use them.
+     *
+     * @return void
+     */
     public function enqueue_scripts() {
         if (function_exists('is_cart') && is_cart()) {
             $script_path = WC_QUANTITY_ALERT_PLUGIN_DIR . 'assets/quantity-alert.js';
@@ -53,6 +64,15 @@ class WC_Quantity_Tracker {
         }
     }
 
+    /**
+     * Persist the latest cart quantity change so the frontend can read it on the next request.
+     *
+     * @param string        $cart_item_key Updated cart item key.
+     * @param int|string    $quantity      New quantity value.
+     * @param int|string    $old_quantity  Previous quantity value.
+     * @param WC_Cart|mixed $cart          Cart instance passed by WooCommerce.
+     * @return void
+     */
     public function track_quantity_change($cart_item_key, $quantity, $old_quantity, $cart) {
         if ((int) $quantity === (int) $old_quantity || !WC()->session) {
             return;
@@ -78,6 +98,11 @@ class WC_Quantity_Tracker {
         WC()->session->set('wc_qty_changes', $changes);
     }
 
+    /**
+     * Register the cart endpoint extension consumed by the block cart data store.
+     *
+     * @return void
+     */
     public function extend_store_api() {
         if (!function_exists('woocommerce_store_api_register_endpoint_data')) {
             return;
@@ -94,6 +119,11 @@ class WC_Quantity_Tracker {
         );
     }
 
+    /**
+     * Return the latest queued quantity change and clear it after exposure.
+     *
+     * @return array<int, array{name: string, sku: string, quantity: int}>
+     */
     public function store_api_data_callback() {
         if (!WC()->session) {
             return array();
@@ -105,6 +135,11 @@ class WC_Quantity_Tracker {
         return $changes;
     }
 
+    /**
+     * Describe the shape of each quantity-change record returned from the Store API extension.
+     *
+     * @return array<string, array<string, mixed>>
+     */
     public function store_api_schema_callback() {
         return array(
             'name' => array(

@@ -11,29 +11,6 @@ A WooCommerce plugin that shows a dismissible success notice when a shopper chan
 
 Only the latest change is surfaced. Cart-side session data is cleared after it is read back through the Store API extension.
 
-## WooCommerce Hooks Used
-
-The plugin keeps its PHP integration surface intentionally small and uses the narrowest WooCommerce hooks that match the behavior under test.
-
-| Hook | Why this hook was chosen | Why nearby alternatives were not used |
-|------|--------------------------|---------------------------------------|
-| <code>woocommerce_after_cart_item_<br>quantity_update</code> | It runs after WooCommerce has accepted the new cart quantity and gives the plugin the cart item key plus both the old and new quantities. That makes it easy to ignore no-op updates, read the final product object, and persist the exact quantity that the shopper ended up with. | Broader cart lifecycle hooks such as `woocommerce_cart_updated` fire after many cart changes, not just quantity edits, so they would require extra diffing to figure out what changed. Earlier or lower-level hooks are also a worse fit because this plugin needs the final committed quantity, not an in-progress mutation. |
-| <code>woocommerce_blocks_<br>loaded</code> | The Store API extension is only registered once WooCommerce Blocks has loaded its Store API classes and helper functions. This is the safest point to call `woocommerce_store_api_register_endpoint_data()` and reference the cart schema constant. | More generic bootstrap hooks such as `plugins_loaded` or `init` can run before Blocks has finished loading, so the Store API registration function or schema classes may not exist yet. Using those hooks would mean extra defensive branching around a dependency that WooCommerce already exposes with a dedicated readiness hook. |
-
-### Why there is no separate WooCommerce hook for the Shop alert
-
-The Shop-page alert does not come from a dedicated WooCommerce PHP hook. In this implementation, the Shop experience is driven from the browser with `shop-quantity-alert.js`, which observes the product button text changing to `N in cart`.
-
-That tradeoff was deliberate:
-
-- the cart page already exposes a stronger integration point through the Blocks cart data store and Store API extensions
-- the shop page in this project does not expose an equivalent state-driven hook for the exact inline alert behavior being demonstrated
-- adding more server-side hooks would not remove the need to detect the client-side shop UI change that the user actually sees
-
-For that reason, the plugin uses WooCommerce hooks only where WooCommerce exposes a reliable state boundary, and falls back to a tightly scoped frontend observer on the Shop page.
-
----
-
 ## Architecture
 
 This project is intentionally split into small layers so the WooCommerce integration points stay simple and the UI behavior remains explainable.
@@ -190,6 +167,27 @@ Shop page resilience:
   - the observer is isolated to the product-button surface
   - failure radius is limited to shop-page alerts only
 ```
+
+## WooCommerce Hooks Used
+
+The plugin keeps its PHP integration surface intentionally small and uses the narrowest WooCommerce hooks that match the behavior under test.
+
+| Hook | Why this hook was chosen | Why nearby alternatives were not used |
+|------|--------------------------|---------------------------------------|
+| <code>woocommerce_after_cart_item_<br>quantity_update</code> | It runs after WooCommerce has accepted the new cart quantity and gives the plugin the cart item key plus both the old and new quantities. That makes it easy to ignore no-op updates, read the final product object, and persist the exact quantity that the shopper ended up with. | `woocommerce_cart_item_set_quantity` was not used because it fires later with less context: it does not include the previous quantity, so the plugin would need extra bookkeeping just to reconstruct the same comparison. `woocommerce_update_cart_action_cart_updated` was not used because it is tied to the classic cart form submission path in `WC_Form_Handler`, not the narrower item-level quantity boundary the plugin needs, and it is a poor match for the Blocks cart flow. `woocommerce_cart_updated` was not used because it is a broad cart-session lifecycle hook that fires after the session is written, so it can represent many cart changes besides quantity edits and would require extra diffing to determine what actually changed. |
+| <code>woocommerce_blocks_<br>loaded</code> | The Store API extension is only registered once WooCommerce Blocks has loaded its Store API classes and helper functions. This is the safest point to call `woocommerce_store_api_register_endpoint_data()` and reference the cart schema constant. | More generic bootstrap hooks such as `plugins_loaded` or `init` can run before Blocks has finished loading, so the Store API registration function or schema classes may not exist yet. Using those hooks would mean extra defensive branching around a dependency that WooCommerce already exposes with a dedicated readiness hook. |
+
+### Why there is no separate WooCommerce hook for the Shop alert
+
+The Shop-page alert does not come from a dedicated WooCommerce PHP hook. In this implementation, the Shop experience is driven from the browser with `shop-quantity-alert.js`, which observes the product button text changing to `N in cart`.
+
+That tradeoff was deliberate:
+
+- the cart page already exposes a stronger integration point through the Blocks cart data store and Store API extensions
+- the shop page in this project does not expose an equivalent state-driven hook for the exact inline alert behavior being demonstrated
+- adding more server-side hooks would not remove the need to detect the client-side shop UI change that the user actually sees
+
+For that reason, the plugin uses WooCommerce hooks only where WooCommerce exposes a reliable state boundary, and falls back to a tightly scoped frontend observer on the Shop page.
 
 ---
 

@@ -26,20 +26,31 @@ class WC_Quantity_Tracker {
     }
 
     public function enqueue_scripts() {
-        if (!function_exists('is_cart') || !is_cart()) {
-            return;
+        if (function_exists('is_cart') && is_cart()) {
+            $script_path = WC_QUANTITY_ALERT_PLUGIN_DIR . 'assets/quantity-alert.js';
+            $script_version = file_exists($script_path) ? (string) filemtime($script_path) : '1.0.0';
+
+            wp_enqueue_script(
+                'wc-quantity-alert',
+                WC_QUANTITY_ALERT_PLUGIN_URL . 'assets/quantity-alert.js',
+                array('wp-data', 'wp-notices', 'wc-blocks-data-store'),
+                $script_version,
+                true
+            );
         }
 
-        $script_path = WC_QUANTITY_ALERT_PLUGIN_DIR . 'assets/quantity-alert.js';
-        $script_version = file_exists($script_path) ? (string) filemtime($script_path) : '1.0.0';
+        if (function_exists('is_shop') && is_shop()) {
+            $shop_script_path = WC_QUANTITY_ALERT_PLUGIN_DIR . 'assets/shop-quantity-alert.js';
+            $shop_script_version = file_exists($shop_script_path) ? (string) filemtime($shop_script_path) : '1.0.0';
 
-        wp_enqueue_script(
-            'wc-quantity-alert',
-            WC_QUANTITY_ALERT_PLUGIN_URL . 'assets/quantity-alert.js',
-            array('wp-data', 'wp-notices', 'wc-blocks-data-store'),
-            $script_version,
-            true
-        );
+            wp_enqueue_script(
+                'wc-shop-quantity-alert',
+                WC_QUANTITY_ALERT_PLUGIN_URL . 'assets/shop-quantity-alert.js',
+                array(),
+                $shop_script_version,
+                true
+            );
+        }
     }
 
     public function track_quantity_change($cart_item_key, $quantity, $old_quantity, $cart) {

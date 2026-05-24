@@ -25,17 +25,19 @@
             return;
         }
 
-        var changes = extensions['wc-quantity-alert'];
-
-        if (!changes || !Array.isArray(changes) || changes.length === 0) {
-            return;
-        }
+        var changes = Array.isArray(extensions['wc-quantity-alert'])
+            ? extensions['wc-quantity-alert']
+            : [];
 
         var currentJson = JSON.stringify(changes);
 
         if (!hasSeenInitialState) {
             hasSeenInitialState = true;
             lastProcessedJson = currentJson;
+            return;
+        }
+
+        if (changes.length === 0) {
             return;
         }
 

@@ -86,7 +86,6 @@ NAV_CONTENT=$(cat <<EOF
 <!-- wp:navigation-link {"label":"Shop","type":"custom","url":"${SITE_URL}/shop/","kind":"custom"} /-->
 <!-- wp:navigation-link {"label":"Cart","type":"custom","url":"${SITE_URL}/cart/","kind":"custom"} /-->
 <!-- wp:navigation-link {"label":"Checkout","type":"custom","url":"${SITE_URL}/checkout/","kind":"custom"} /-->
-<!-- wp:navigation-link {"label":"My account","type":"custom","url":"${SITE_URL}/my-account/","kind":"custom"} /-->
 EOF
 )
 

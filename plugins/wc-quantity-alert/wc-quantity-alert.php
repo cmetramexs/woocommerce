@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: WC Quantity Alert
- * Description: Quantity threshold alerts for WooCommerce carts.
+ * Description: Quantity change alerts for WooCommerce cart and shop experiences.
  * Version: 1.0.0
  * Author: cmexs
  */

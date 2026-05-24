@@ -69,9 +69,9 @@ class WC_Quantity_Tracker {
         $product = $cart_item['data'];
         $changes = array(
             array(
-            'name' => $product->get_name(),
-            'sku' => $product->get_sku(),
-            'quantity' => (int) $quantity,
+                'name' => $product->get_name(),
+                'sku' => $product->get_sku(),
+                'quantity' => (int) $quantity,
             )
         );
 

@@ -1,9 +1,9 @@
 set -euo pipefail
 
-echo "=== WC Quality Alert: Storefront Setup ==="
+echo "=== WC Quantity Alert: Storefront Setup ==="
 
 echo "[1/8] Activating Storefront theme..."
-wp theme activate twentytwnentyfour --quiet 2>/dev/null || wp theme activate twentytwentyfour
+wp theme activate twentytwentyfour --quiet 2>/dev/null || wp theme activate twentytwentyfour
 
 echo "[2/8] Creating WooCommerce pages..."
 

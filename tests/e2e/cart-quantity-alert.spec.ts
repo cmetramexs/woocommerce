@@ -1,58 +1,60 @@
-import { test, expoect, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
-const STORE_API = '/wp-json/wc/store/v1';
-const NOTICE_SELECTOR = '.wc-blocks-cart__notice';
+const NOTICE_SELECTOR = '.wc-block-components-notice-banner';
+const PRODUCT_WITH_SKU_NAME = 'Mug';
+const PRODUCT_WITHOUT_SKU_NAME = 'Notebook';
 
-const PRODUCT_WITH_SKU_ID = 1;
-const PRODUCT_WITHOUT_SKU_ID = 2;
-
-async function addToCart(page: Page, productId: number, quantity = 1) {
-    const response = await page.request.post(`${STORE_API}/cart/add-item`, {
-        data: {
-            id: productId,
-            quantity,
-        },
-    });
-    expoect(response.ok()).toBeTruthy();
+async function cartNotice(page: Page): Promise<Locator> {
+    return page.locator(NOTICE_SELECTOR).filter({ hasText: 'You changed' }).first();
 }
 
 async function clearCart(page: Page) {
-    const cartResponse = await page.request.get(`${STORE_API}/cart`);
-    const cart = await cartResponse.json();
+    await page.goto('/cart');
+    await page.waitForLoadState('networkidle');
 
-    for (const item of cart.items) {
-        await page.request.post(`${STORE_API}/cart/remove-item`, {
-            data: {
-                key: item.key,
-            },
-        });
+    var removeButtons = page.locator('button[aria-label^="Remove "]');
+    while (await removeButtons.count()) {
+        await removeButtons.first().click();
+        await page.waitForLoadState('networkidle');
+        removeButtons = page.locator('button[aria-label^="Remove "]');
     }
 }
 
+async function addProductFromShop(page: Page, productName: string) {
+    await page.goto('/shop');
+    await page.waitForLoadState('networkidle');
+
+    const productCard = page.locator('li.product', { hasText: productName }).first();
+    await productCard.getByRole('button').click();
+    await expect(productCard.getByRole('button')).toContainText(/in cart/i);
+}
+
+async function seedCart(page: Page) {
+    await clearCart(page);
+    await addProductFromShop(page, PRODUCT_WITH_SKU_NAME);
+    await addProductFromShop(page, PRODUCT_WITHOUT_SKU_NAME);
+}
+
 async function changeCartItemQuantity(page: Page, productName: string, newQuantity: number) {
-    const row = page.locator('.wc-blocks-cart-item__row', { hasText: productName });
-    const input = row.locator('input[type="number"]');
-    await input.fill(newQuantity);
+    const input = page.getByLabel(`Quantity of ${productName} in your cart.`).first();
+
+    await input.fill(String(newQuantity));
     await input.blur();
+
     await page.waitForResponse(
-        (response) =>
-            response.url().includes(`/cart/update-item`) && response.request().status() === 200
+        (response) => response.url().includes('/cart/update-item') && response.status() === 200
     );
-    await page.waitForTimeout(500); // Wait for the UI to update
 }
 
 test.describe('WC Quantity Alert Plugin', () => {
     test.beforeEach(async ({ page }) => {
-        await clearCart(page);
-        await addToCart(page, PRODUCT_WITH_SKU_ID, 1);
-        await addToCart(page, PRODUCT_WITHOUT_SKU_ID, 1);
+        await seedCart(page);
     });
 
     test('no alert on page load', async ({ page }) => {
         await page.goto('/cart');
         await page.waitForSelector('.wc-block-cart');
-        const notice = page.locator(NOTICE_SELECTOR);
-        await expoect(notice).toHaveCount(0);
+        await expect(await cartNotice(page)).toHaveCount(0);
     });
 
     test('no alert on page refresh', async ({ page }) => {
@@ -60,53 +62,52 @@ test.describe('WC Quantity Alert Plugin', () => {
         await page.waitForSelector('.wc-block-cart');
         await page.reload();
         await page.waitForSelector('.wc-block-cart');
-        const notice = page.locator(NOTICE_SELECTOR);
-        await expoect(notice).toHaveCount(0);
+        await expect(await cartNotice(page)).toHaveCount(0);
     });
 
     test('alert on quantity change - Product with SKU', async ({ page }) => {
         await page.goto('/cart');
         await page.waitForSelector('.wc-block-cart');
-        await changeCartItemQuantity(page, 'Product with SKU', 5);
-        const notice = page.locator(NOTICE_SELECTOR);
-        await expoect(notice).toBeVisible();
-        await expoect(notice).toHaveText(
-            'You changed Test Product (SKU: TEST-001) to a quantity of 5.'
+        await changeCartItemQuantity(page, PRODUCT_WITH_SKU_NAME, 5);
+        const notice = await cartNotice(page);
+        await expect(notice).toBeVisible();
+        await expect(notice).toContainText(
+            'You changed Mug (SKU: MUG001) to a quantity of 5.'
         );
     });
 
     test('alert on quantity change - Product without SKU', async ({ page }) => {
         await page.goto('/cart');
         await page.waitForSelector('.wc-block-cart');
-        await changeCartItemQuantity(page, 'Product without SKU', 5);
-        const notice = page.locator(NOTICE_SELECTOR);
-        await expoect(notice).toBeVisible();
-        await expoect(notice).toHaveText(
-            'You changed Test Product to a quantity of 5.'
+        await changeCartItemQuantity(page, PRODUCT_WITHOUT_SKU_NAME, 5);
+        const notice = await cartNotice(page);
+        await expect(notice).toBeVisible();
+        await expect(notice).toContainText(
+            'You changed Notebook to a quantity of 5.'
         );
     });
 
-    test('no alert when quantity uncahnged', async ({ page }) => {
+    test('no alert when quantity unchanged', async ({ page }) => {
         await page.goto('/cart');
         await page.waitForSelector('.wc-block-cart');
-        const row = page.locator('.wc-blocks-cart-item__row', { hasText: 'Product with SKU' });
-        const input = row.locator('input[type="number"]');
+        const input = page.getByLabel(`Quantity of ${PRODUCT_WITH_SKU_NAME} in your cart.`).first();
         await input.fill('1');
         await input.blur();
-        await page.waitForTimeout(1000); // Wait for the UI to update
-        const notice = page.locator(NOTICE_SELECTOR);
-        await expoect(notice).toHaveCount(0);
+        await page.waitForTimeout(1000);
+        await expect(await cartNotice(page)).toHaveCount(0);
     });
 
-    test('multiplw items changed - consolidated notice', async ({ page }) => {
+    test('latest change replaces prior cart alert', async ({ page }) => {
         await page.goto('/cart');
         await page.waitForSelector('.wc-block-cart');
-        await changeCartItemQuantity(page, 'Product with SKU', 3);
-        await changeCartItemQuantity(page, 'Product without SKU', 4);
-        const notices = page.locator(NOTICE_SELECTOR);
-        const allText = await notices.allTextContents();
-        const combinedText = allText.join(' ');
+        await changeCartItemQuantity(page, PRODUCT_WITH_SKU_NAME, 3);
+        await changeCartItemQuantity(page, PRODUCT_WITH_SKU_NAME, 4);
 
-        expoect(combinedText).toContain('You changed Test Product (SKU: TEST-001) to a quantity of 3.');
+        const notice = await cartNotice(page);
+        await expect(notice).toBeVisible();
+        await expect(notice).toContainText(
+            'You changed Mug (SKU: MUG001) to a quantity of 4.'
+        );
+        await expect(notice).not.toContainText('quantity of 3');
     });
 });

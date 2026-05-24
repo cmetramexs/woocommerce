@@ -1,14 +1,15 @@
 # WC Quantity Alert
 
-A WooCommerce plugin that displays a dismissible success notice in the Block Cart whenever a shopper updates an item's quantity. The notice includes the product name and, when available, the SKU — giving shoppers clear confirmation of what they just changed.
+A WooCommerce plugin that displays a dismissible success notice whenever a shopper changes an item's quantity in the Block Cart, and a matching inline alert when the in-cart quantity changes from the Shop page. The notice includes the product name and, when available, the SKU.
 
 ## How It Works
 
 1. **Server-side tracking** — `WC_Quantity_Tracker` hooks into `woocommerce_after_cart_item_quantity_update` to record each quantity change (product name, SKU, new quantity) in the WooCommerce session.
 2. **Store API extension** — The plugin extends the Cart Store API endpoint to expose those session-stored changes under the `wc-quantity-alert` namespace.
-3. **Client-side notice** — A vanilla JS subscriber (`quantity-alert.js`) watches the `wc/store/cart` data store via `wp.data`. When new changes appear in `cartData.extensions['wc-quantity-alert']`, it dispatches a `core/notices` success notice into the `wc/cart` context.
+3. **Cart notice** — A vanilla JS subscriber (`quantity-alert.js`) watches the `wc/store/cart` data store via `wp.data`. When new changes appear in `cartData.extensions['wc-quantity-alert']`, it dispatches a `core/notices` success notice into the `wc/cart` context.
+4. **Shop notice** — A lightweight observer (`shop-quantity-alert.js`) watches the Shop page product buttons for `N in cart` changes and shows the same quantity-change message inline on the page.
 
-Notices are deduplicated (the same change is never shown twice) and cleared from the session after being read.
+Notices are deduplicated, only the latest change is surfaced, and cart-side session data is cleared after being read.
 
 ---
 
@@ -56,15 +57,16 @@ npx wp-env run cli bash wp-content/scripts/seed-products.sh
 ## Demo Walkthrough
 
 1. Open the **Shop** page at http://localhost:8888/shop/.
-2. Add any product to the cart (click *Add to cart*).
-3. Navigate to the **Cart** page at http://localhost:8888/cart/.
-4. Change a product's quantity using the quantity input field — increase or decrease it.
-5. Click outside the input or press Tab to trigger the update.
-6. A green success notice appears at the top of the cart:
+2. Add any product to the cart from the Shop page.
+3. Click the same product again so its Shop button changes from *Add to cart* to `N in cart`, and confirm the Shop page shows a quantity-change alert.
+4. Navigate to the **Cart** page at http://localhost:8888/cart/.
+5. Change a product's quantity using the quantity input field — increase or decrease it.
+6. Click outside the input or press Tab to trigger the update.
+7. A green success notice appears at the top of the cart:
    - **With SKU:** `You changed T-Shirt (SKU: TSHIRT001) to a quantity of 3.`
    - **Without SKU:** `You changed Notebook to a quantity of 2.`
-7. The notice is dismissible — click the × to close it.
-8. Refresh the page — no notice appears (changes are cleared from the session after being read).
+8. The notice is dismissible — click the × to close it.
+9. Refresh the page — no notice appears (changes are cleared from the session after being read).
 
 ---
 
@@ -118,6 +120,7 @@ plugins/
       class-quantity-tracker.php   # Server-side hooks and Store API extension
     assets/
       quantity-alert.js            # Client-side cart subscriber
+      shop-quantity-alert.js       # Shop-page quantity alert observer
 scripts/
   setup-storefront.sh              # One-time storefront configuration
   seed-products.sh                 # Sample product seeder
